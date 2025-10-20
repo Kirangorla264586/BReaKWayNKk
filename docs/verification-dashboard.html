@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app-sidebar sidebar-verification">
+    <div class="sidebar-header">
+      <h1>
+        <span>BREAKWAY</span><br><span>VERIFICATION</span>
+      </h1>
+      <img src="gas.png" alt="Breakway Gas Supply Logo" class="sidebar-logo">
+    </div>
+  </div>
+  <div class="page-content">
+    <div class="card" style="max-width: 800px; width: 90%; text-align: left">
+      <div class="page-header">
+        <a href="login.html" id="logoutBtn" class="btn-logout">Logout</a>
+      </div>
+      <div class="card-header" style="text-align: center;">
+        <h1>User Verification</h1>
+        <p>Manage all user KYC verification requests.</p>
+      </div>
+
+      <div class="tab-content active" style="margin-top: 20px;">
+          <div class="tab-header">
+            <h3>All Users</h3>
+            <button id="exportUsersBtn" class="btn-export">Export CSV</button>
+          </div>
+          <div class="form-group" style="margin-bottom: 15px;">
+            <input type="text" id="userSearch" placeholder="🔍 Search by name, email, or ID..." style="padding: 10px; background: rgba(255,255,255,0.08);">
+          </div>
+          <div class="table-wrapper">
+            <table id="usersTable">
+              <thead>
+                <tr><th>Name</th><th>Contact</th><th>KYC Status</th><th>Actions</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="pagination-controls" id="userPagination">
+            <button class="btn ghost" data-page="prev">Previous</button>
+            <span class="page-info">Page 1</span>
+            <button class="btn ghost" data-page="next">Next</button>
+          </div>
+        </div>
+    </div>
+  </div>
+  <button id="themeToggleBtn" class="theme-toggle" aria-label="Toggle theme"></button>
+  <script src="main.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const usersTbody = document.querySelector('#usersTable tbody');
+      
+      function escapeHtml(s) {
+        if (!s) return '';
+        return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      }
+
+      const allUsersFromStorage = JSON.parse(localStorage.getItem('users') || '[]');
+      let allUsers = allUsersFromStorage.filter(u => !u.role); // Only show regular users
+      let currentUserPage = 1;
+      const limit = 10;
+
+      function renderUsers(usersToRender) {
+        const pageUsers = usersToRender.slice((currentUserPage - 1) * limit, currentUserPage * limit);
+        usersTbody.innerHTML = pageUsers.map(u => `
+          <tr>
+            <td>
+              ${escapeHtml(u.name)}<br><small>${escapeHtml(u.id)}</small>
+              ${u.kycStatus === 'slot-booked' && u.verificationSlot ? `<div style="font-size:12px; color: var(--accent-strong); margin-top:4px;">Slot: ${escapeHtml(u.verificationSlot.date)} (${escapeHtml(u.verificationSlot.time)})</div>` : ''}
+            </td>
+            <td>${escapeHtml(u.mobile || u.email) || '-'}</td>
+            <td><span class="status status-${u.kycStatus || 'pending'}">${escapeHtml(u.kycStatus || 'pending')}</span></td>
+            <td>
+              ${['pending', 'submitted', 'slot-booked'].includes(u.kycStatus || 'pending') ? `
+                <button class="btn-action approve" data-user-id="${u.id}">Approve</button>
+                <button class="btn-action reject" data-user-id="${u.id}">Reject</button>
+              ` : '-'}
+            </td>
+          </tr>
+        `).join('');
+        attachUserActionListeners();
+        updatePagination('userPagination', currentUserPage, usersToRender.length);
+      }
+
+      function updatePagination(containerId, page, total) {
+        const container = document.getElementById(containerId);
+        const pageInfo = container.querySelector('.page-info');
+        const prevBtn = container.querySelector('[data-page="prev"]');
+        const nextBtn = container.querySelector('[data-page="next"]');
+        const totalPages = Math.ceil(total / limit);
+        pageInfo.textContent = `Page ${page} of ${totalPages || 1}`;
+        prevBtn.disabled = page <= 1;
+        nextBtn.disabled = page >= totalPages;
+      }
+
+      function attachUserActionListeners() {
+        usersTbody.querySelectorAll('.btn-action').forEach(button => {
+          button.addEventListener('click', (e) => {
+            const userId = e.target.dataset.userId;
+            const action = e.target.classList.contains('approve') ? 'verified' : 'rejected';
+            
+            const allUsersWithAgents = JSON.parse(localStorage.getItem('users') || '[]');
+            const userIndex = allUsersWithAgents.findIndex(u => u.id === userId);
+            if (userIndex !== -1) {
+              allUsersWithAgents[userIndex].kycStatus = action;
+              localStorage.setItem('users', JSON.stringify(allUsersWithAgents));
+              showToast(`User ${action}.`, 'success');
+              
+              allUsers = allUsersWithAgents.filter(u => !u.role);
+              const searchTerm = document.getElementById('userSearch').value.toLowerCase();
+              const filteredUsers = allUsers.filter(u => (u.name && u.name.toLowerCase().includes(searchTerm)) || (u.email && u.email.toLowerCase().includes(searchTerm)) || (u.id && u.id.toLowerCase().includes(searchTerm)));
+              renderUsers(filteredUsers);
+            }
+          });
+        });
+      }
+
+      renderUsers(allUsers);
+
+      document.getElementById('userSearch').addEventListener('input', (e) => {
+        const searchTerm = e.target.value.toLowerCase();
+        const filteredUsers = allUsers.filter(u => (u.name && u.name.toLowerCase().includes(searchTerm)) || (u.email && u.email.toLowerCase().includes(searchTerm)) || (u.id && u.id.toLowerCase().includes(searchTerm)));
+        currentUserPage = 1;
+        renderUsers(filteredUsers);
+      });
+
+      document.getElementById('userPagination').addEventListener('click', (e) => {
+        const searchTerm = document.getElementById('userSearch').value.toLowerCase();
+        const filteredUsers = allUsers.filter(u => (u.name && u.name.toLowerCase().includes(searchTerm)) || (u.email && u.email.toLowerCase().includes(searchTerm)) || (u.id && u.id.toLowerCase().includes(searchTerm)));
+        if (e.target.dataset.page === 'next') {
+          currentUserPage++;
+        } else if (e.target.dataset.page === 'prev') {
+          currentUserPage--;
+        }
+        renderUsers(filteredUsers);
+      });
+
+      // Listen for storage changes from other tabs and refresh the UI
+      window.addEventListener('storage', (e) => {
+        if (e.key === 'users') {
+          console.log(`Detected change in '${e.key}', refreshing verification dashboard.`);
+          // Re-fetch data and re-apply the current filter by triggering the input event
+          allUsers = JSON.parse(localStorage.getItem('users') || '[]').filter(u => !u.role);
+          const searchInput = document.getElementById('userSearch');
+          searchInput.dispatchEvent(new Event('input'));
+        }
+      });
+
+    });
+  </script>
+</body>
+</html>
